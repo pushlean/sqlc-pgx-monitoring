@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -43,6 +44,7 @@ func (dt *dbTracer) TraceConnectEnd(ctx context.Context, data pgx.TraceConnectEn
 		logAttrs = append(logAttrs, slog.Any("error", data.Err))
 		level = slog.LevelError
 	} else {
+		connectData.span.SetStatus(codes.Ok, "")
 		level = slog.LevelInfo
 	}
 
