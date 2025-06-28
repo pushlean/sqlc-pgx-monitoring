@@ -18,10 +18,9 @@ type traceBatchData struct {
 }
 
 func (dt *dbTracer) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
-	ctx, span := dt.startSpan(ctx, "postgresql.batch")
-	span.SetAttributes(
+	ctx, span := dt.startSpan(ctx, "postgresql.batch", trace.WithAttributes(
 		PGXOperationTypeKey.String("batch"),
-	)
+	))
 	return context.WithValue(ctx, dbTracerBatchCtxKey, &traceBatchData{
 		startTime: time.Now(),
 		span:      span,
