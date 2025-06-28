@@ -181,13 +181,15 @@ func (dt *dbTracer) logQueryArgs(args []any) []any {
 	return logArgs
 }
 
-func (dt *dbTracer) startSpan(ctx context.Context, name string) (context.Context, trace.Span) {
-	ctx, span := dt.getTracer().Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient))
-	span.SetAttributes(
-		semconv.DBSystemPostgreSQL,
-		semconv.DBNamespace(dt.databaseName),
-	)
-
+func (dt *dbTracer) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	// Merge all options into a SpanConfig, then extract and re-apply attributes as a single WithAttributes option.
+	cfg := trace.NewSpanStartConfig(append([]trace.SpanStartOption{
+		trace.WithAttributes(
+			semconv.DBSystemPostgreSQL,
+			semconv.DBNamespace(dt.databaseName),
+		),
+	}, opts...)...)
+	ctx, span := dt.getTracer().Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(cfg.Attributes()...))
 	return ctx, span
 }
 

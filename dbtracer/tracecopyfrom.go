@@ -19,11 +19,10 @@ type traceCopyFromData struct {
 }
 
 func (dt *dbTracer) TraceCopyFromStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceCopyFromStartData) context.Context {
-	ctx, span := dt.startSpan(ctx, "postgresql.copy_from")
-	span.SetAttributes(
+	ctx, span := dt.startSpan(ctx, "postgresql.copy_from", trace.WithAttributes(
 		PGXOperationTypeKey.String("copy_from"),
 		attribute.String("db.table", data.TableName.Sanitize()),
-	)
+	))
 	return context.WithValue(ctx, dbTracerCopyFromCtxKey, &traceCopyFromData{
 		startTime:   time.Now(),
 		TableName:   data.TableName,

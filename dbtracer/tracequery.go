@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
@@ -32,16 +33,17 @@ func (dt *dbTracer) TraceQueryStart(
 		suffix = fmt.Sprintf("/%s", queryName)
 	}
 	name := fmt.Sprintf("postgresql.query%s", suffix)
-	ctx, span := dt.startSpan(ctx, name)
-	span.SetAttributes(
+
+	attrs := []attribute.KeyValue{
 		SQLCQueryNameKey.String(queryName),
 		SQLCQueryTypeKey.String(queryType),
 		PGXOperationTypeKey.String("query"),
-	)
-
-	if dt.includeQueryText {
-		span.SetAttributes(semconv.DBQueryText(data.SQL))
 	}
+	if dt.includeQueryText {
+		attrs = append(attrs, semconv.DBQueryText(data.SQL))
+	}
+
+	ctx, span := dt.startSpan(ctx, name, trace.WithAttributes(attrs...))
 
 	return context.WithValue(ctx, dbTracerQueryCtxKey, &traceQueryData{
 		startTime: time.Now(),
