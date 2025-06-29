@@ -53,7 +53,7 @@ func NewDBTracer(
 	}
 
 	optCtx := optionCtx{
-		name: "github.com/amirsalarsafaei/sqlc-pgx-monitoring",
+		name: "sqlc-pgx-monitoring",
 		shouldLog: func(_ error) bool {
 			return true
 		},
