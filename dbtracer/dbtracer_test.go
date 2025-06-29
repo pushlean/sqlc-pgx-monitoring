@@ -1388,3 +1388,117 @@ func (s *DBTracerSuite) TestTraceBatchQuery_WithAppendQueryNameToSpan() {
 	s.Equal(s.defaultDBName, attrMap[semconv.DBNamespaceKey])
 	s.Equal(semconv.DBSystemPostgreSQL.Value.AsString(), attrMap[semconv.DBSystemKey])
 }
+
+func (s *DBTracerSuite) TestOnlyChildSpans_NoParentSpan_NoSpanCreated() {
+	// Create tracer with onlyChildSpans enabled
+	tracer, err := NewDBTracer(
+		s.defaultDBName,
+		WithTraceProvider(s.tracerProvider),
+		WithMeterProvider(s.meterProvider),
+		WithShouldLog(s.shouldLog()),
+		WithLogger(s.logger),
+		WithOnlyChildSpans(true),
+	)
+	s.Require().NoError(err)
+
+	// Start a query without any parent span in context
+	ctx := tracer.TraceQueryStart(s.ctx, s.pgxConn, pgx.TraceQueryStartData{
+		SQL:  s.defaultQuerySQL,
+		Args: []interface{}{1},
+	})
+
+	// Verify that the query data exists but the span is a no-op
+	queryData := ctx.Value(dbTracerQueryCtxKey).(*traceQueryData)
+	s.NotNil(queryData)
+	s.Equal(s.defaultQuerySQL, queryData.sql)
+
+	// End the query
+	tracer.TraceQueryEnd(ctx, s.pgxConn, pgx.TraceQueryEndData{
+		CommandTag: pgconn.CommandTag{},
+		Err:        nil,
+	})
+
+	// Verify no spans were created/ended (since we returned a no-op span)
+	spans := s.spanRecorder.Ended()
+	s.Len(spans, 0, "No spans should be created when onlyChildSpans=true and no parent span exists")
+
+	histogramPoints := s.getHistogramPoints()
+	s.Len(histogramPoints, 1)
+}
+
+func (s *DBTracerSuite) TestOnlyChildSpans_WithParentSpan_ChildSpanCreated() {
+	// Create tracer with onlyChildSpans enabled
+	tracer, err := NewDBTracer(
+		s.defaultDBName,
+		WithTraceProvider(s.tracerProvider),
+		WithMeterProvider(s.meterProvider),
+		WithShouldLog(s.shouldLog()),
+		WithLogger(s.logger),
+		WithOnlyChildSpans(true),
+	)
+	s.Require().NoError(err)
+
+	// Create a parent span first
+	parentTracer := s.tracerProvider.Tracer("test-parent")
+	parentCtx, parentSpan := parentTracer.Start(s.ctx, "parent-operation")
+
+	// Start a query with parent span in context
+	ctx := tracer.TraceQueryStart(parentCtx, s.pgxConn, pgx.TraceQueryStartData{
+		SQL:  s.defaultQuerySQL,
+		Args: []interface{}{1},
+	})
+
+	// Verify that the query data exists and the span is real
+	queryData := ctx.Value(dbTracerQueryCtxKey).(*traceQueryData)
+	s.NotNil(queryData)
+	s.Equal(s.defaultQuerySQL, queryData.sql)
+
+	// End the query
+	tracer.TraceQueryEnd(ctx, s.pgxConn, pgx.TraceQueryEndData{
+		CommandTag: pgconn.CommandTag{},
+		Err:        nil,
+	})
+
+	// End the parent span explicitly
+	parentSpan.End()
+
+	// Verify spans were created
+	spans := s.spanRecorder.Ended()
+	s.Require().Len(spans, 2, "Should have both parent and child spans")
+
+	// Find the database query span (child span)
+	var dbSpan sdktrace.ReadOnlySpan
+	for _, span := range spans {
+		if span.Name() == "postgresql.query" {
+			dbSpan = span
+			break
+		}
+	}
+	s.NotNil(dbSpan, "Database query span should be created")
+	s.Equal(codes.Ok, dbSpan.Status().Code)
+
+	// Verify the child span has the correct parent
+	s.Equal(parentSpan.SpanContext().SpanID(), dbSpan.Parent().SpanID(), "Child span should have correct parent")
+
+	// Check span attributes
+	attrs := dbSpan.Attributes()
+	attrMap := make(map[attribute.Key]string)
+	for _, attr := range attrs {
+		if attr.Value.Type() == attribute.STRING {
+			attrMap[attr.Key] = attr.Value.AsString()
+		}
+	}
+	s.Equal("get_users", attrMap[SQLCQueryNameKey])
+	s.Equal("one", attrMap[SQLCQueryTypeKey])
+	s.Equal("query", attrMap[PGXOperationTypeKey])
+	s.Equal(s.defaultDBName, attrMap[semconv.DBNamespaceKey])
+	s.Equal(semconv.DBSystemPostgreSQL.Value.AsString(), attrMap[semconv.DBSystemKey])
+
+	// Verify metrics were recorded
+	histogramPoints := s.getHistogramPoints()
+	s.Require().Len(histogramPoints, 1)
+
+	point := histogramPoints[0]
+	s.Equal(uint64(1), point.Count)
+	s.True(point.Sum > 0, "Duration should be positive")
+}

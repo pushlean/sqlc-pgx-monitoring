@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 var ErrDatabaseNameEmpty = errors.New("database name is empty")
@@ -40,6 +41,7 @@ type dbTracer struct {
 	traceLibraryName      string
 	includeQueryText      bool
 	appendQueryNameToSpan bool
+	onlyChildSpans        bool
 }
 
 func NewDBTracer(
@@ -96,6 +98,7 @@ func NewDBTracer(
 		traceLibraryName:      optCtx.name,
 		includeQueryText:      optCtx.includeSQLText,
 		appendQueryNameToSpan: optCtx.appendQueryNameToSpan,
+		onlyChildSpans:        optCtx.onlyChildSpans,
 	}, nil
 }
 
@@ -182,6 +185,10 @@ func (dt *dbTracer) logQueryArgs(args []any) []any {
 }
 
 func (dt *dbTracer) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	if dt.onlyChildSpans && !trace.SpanFromContext(ctx).SpanContext().IsValid() {
+		return ctx, noop.Span{}
+	}
+
 	// Merge all options into a SpanConfig, then extract and re-apply attributes as a single WithAttributes option.
 	cfg := trace.NewSpanStartConfig(append([]trace.SpanStartOption{
 		trace.WithAttributes(

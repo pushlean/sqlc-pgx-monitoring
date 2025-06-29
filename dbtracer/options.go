@@ -24,6 +24,7 @@ type optionCtx struct {
 	logArgsLenLimit       int
 	includeSQLText        bool
 	appendQueryNameToSpan bool
+	onlyChildSpans        bool
 }
 
 type Option func(*optionCtx)
@@ -81,5 +82,11 @@ func WithIncludeSQLText(includeSQLText bool) Option {
 func WithAppendQueryNameToSpan(enabled bool) Option {
 	return func(oc *optionCtx) {
 		oc.appendQueryNameToSpan = enabled
+	}
+}
+
+func WithOnlyChildSpans(enabled bool) Option {
+	return func(oc *optionCtx) {
+		oc.onlyChildSpans = enabled
 	}
 }
